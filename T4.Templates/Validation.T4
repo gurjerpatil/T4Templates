@@ -1,0 +1,404 @@
+﻿<#@ template language="C#" #>
+<#@ property name="ValidationFramework" category="Validation" type="ValidationFramework" description="Specifies the validation framework to validate the properties values of generated classes." #>
+<#@ property name="ValidationErrorMessages" category="Validation" type="ValidationErrorMessages" description="Specifies error messages to associate with a validation control if validation fails. If you do not want to use the hard-coded error messages (perhaps for internationalization), you can use error messages stored in the application resources. For that purpose, specify the name of the resource type for error messages in the format: ResourceType=<type name>. Additionally, the resource name for your error message for the corresponding validator must be equal to the name of a property from the ValidationErrorMessages property." #>
+<#+
+// Template containing functions required to generate C# code for the validation of an object model by using different validation frameworks.
+// Copyright (c) 2008-2014 Devart. All rights reserved.
+#>
+<#+
+  //////////////////////////////////////////////////////////////////////////////////
+  //
+  // Method GeneratePropertyValidationAttributes(Property property)
+  // Generate validation attributes for the class property.
+  //
+  //////////////////////////////////////////////////////////////////////////////////
+  public void GeneratePropertyValidationAttributes(Property property) {
+    
+    switch(ValidationFramework) {
+      case ValidationFramework.DataAnnotations:
+        GenerateDataAnnotationsPropertyAttributes(property);
+        break;
+      case ValidationFramework.EnterpriseLibrary:
+        // rei@12.2.2021 now longer supported, commented here.
+        // GenerateEnterpriseLibraryPropertyAttributes(property);
+        break;
+      case ValidationFramework.NHibernateValidator:
+        GenerateNHibernateValidatorPropertyAttributes(property);
+        break;
+    }
+  }
+#>
+<#+
+  //////////////////////////////////////////////////////////////////////////////////
+  //
+  // Method GenerateDataAnnotationsPropertyAttributes(Property property)
+  // Generate DataAnnotations attributes for the class property.
+  //
+  //////////////////////////////////////////////////////////////////////////////////
+  protected void GenerateDataAnnotationsPropertyAttributes(Property property) {
+    
+    output.AddReference("System.ComponentModel.DataAnnotations");
+
+	var eProp = property as EntityProperty;
+	if (eProp != null)
+	{
+		EntityDeveloper.EntityFramework.Storage.StorageColumn column = null;
+		if (!eProp.IsComplexParent) {
+		  EntityClass cls = eProp.ParentClass as EntityClass;
+		  if (cls != null)
+			column = eProp.GetStorageColumn(cls.ClassMapping);
+		}
+
+		if (column != null)
+		{
+			var additionalColumnAttributes = new System.Text.StringBuilder();
+			
+			if (column.DataType != null)
+			{
+				additionalColumnAttributes.Append(", TypeName = \"" + column.DataType);
+				if (column.MaxLength > 0)
+				{
+					additionalColumnAttributes.Append("(" + column.MaxLength + ")");
+				}
+				else if ((column.Precision > 0) || (column.Scale > 0))
+				{
+					additionalColumnAttributes.Append("(" + column.Precision + "," + column.Scale + ")");
+				}
+				additionalColumnAttributes.Append("\"");
+			}
+
+			if (column.Parent != null)
+			{
+				var columnIndex = column.Parent.Columns.IndexOf(column);
+				if (columnIndex >= 0)
+				{
+					additionalColumnAttributes.Append(", Order = " + columnIndex);
+				}
+			}
+#>
+        [RIB.Visual.Platform.Common.MappedColumn("<#= column.Name #>"<#= additionalColumnAttributes.ToString() #>)]
+<#+
+			if ((bool)eProp.GetProperty("CopyFromPublicApi"))
+			{
+#>
+        [RIB.Visual.Platform.Common.CopyFromPublicApi]
+<#+
+			}
+			if ((bool)eProp.GetProperty("IsIdentifyingCode"))
+			{
+#>
+        [RIB.Visual.Platform.Common.IdentifyingCode]
+<#+
+			}
+			var internalPropName = eProp.GetProperty("InternalPropertyName") as string;
+			if (!string.IsNullOrWhiteSpace(internalPropName))
+			{
+#>
+        [RIB.Visual.Platform.Common.InternalApiField("<#= internalPropName #>")]
+<#+
+			}
+			var statusFkTypeName = eProp.GetProperty("StatusFkTypeName") as string;
+			if (!string.IsNullOrWhiteSpace(statusFkTypeName))
+			{
+#>
+        [RIB.Visual.Platform.Common.EntityStatusFk("<#= statusFkTypeName #>")]
+<#+
+			}
+		}
+	}
+
+	if (property.PrimaryKey) { 
+#>
+        [System.ComponentModel.DataAnnotations.Key]
+<#+
+    }
+
+    if (!string.IsNullOrEmpty(property.ValidateMinValue) || !string.IsNullOrEmpty(property.ValidateMaxValue)) { 
+#>
+        [System.ComponentModel.DataAnnotations.Range(typeof(<#= codeProvider.GetNullableType(false, property.Type) #>), @"<#= property.ValidateMinValue #>", @"<#= property.ValidateMaxValue #>"<#+
+      if (!string.IsNullOrEmpty(ValidationErrorMessages.RangeMessage)) {
+        string resourceType = FindErrorMessageResourceType(ValidationErrorMessages.RangeMessage);
+        if (string.IsNullOrEmpty(resourceType)) {
+          #>, ErrorMessage = @"<#= ValidationErrorMessages.RangeMessage #>"<#+
+        }
+        else {
+          #>, ErrorMessageResourceName = "RangeMessage", ErrorMessageResourceType = typeof(<#= resourceType #>)<#+
+        }
+      }
+        #>)]
+<#+
+    }
+ 
+    if (property.ValidateMinLength != null || property.ValidateMaxLength != null) {
+#>
+        [System.ComponentModel.DataAnnotations.StringLength(<#= property.ValidateMaxLength != null ? property.ValidateMaxLength.ToString() : int.MaxValue.ToString() #><#+
+      if (property.ValidateMinLength != null) {
+          #>, MinimumLength = <#= property.ValidateMinLength.ToString() #><#+
+      }
+        #><#+
+      if (!string.IsNullOrEmpty(ValidationErrorMessages.LengthMessage)) {
+        string resourceType = FindErrorMessageResourceType(ValidationErrorMessages.LengthMessage);
+        if (string.IsNullOrEmpty(resourceType)) {
+          #>, ErrorMessage = @"<#= ValidationErrorMessages.LengthMessage #>"<#+
+        }
+        else {
+          #>, ErrorMessageResourceName = "LengthMessage", ErrorMessageResourceType = typeof(<#= resourceType #>)<#+
+        }
+      }
+        #>)]
+<#+
+    }
+
+    if (property.ValidateRequired) { 
+#>
+        [System.ComponentModel.DataAnnotations.Required(<#+
+      if (!string.IsNullOrEmpty(ValidationErrorMessages.RequiredMessage)) {
+        string resourceType = FindErrorMessageResourceType(ValidationErrorMessages.RequiredMessage);
+        if (string.IsNullOrEmpty(resourceType)) {
+          #>ErrorMessage = @"<#= ValidationErrorMessages.RequiredMessage #>"<#+
+        }
+        else {
+          #>ErrorMessageResourceName = "RequiredMessage", ErrorMessageResourceType = typeof(<#= resourceType #>)<#+
+        }
+      }
+        #>)]
+<#+
+    }
+
+    if (!string.IsNullOrEmpty(property.ValidateExpression)) { 
+#>
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"<#= property.ValidateExpression #>"<#+
+      if (!string.IsNullOrEmpty(ValidationErrorMessages.ExpressionMessage)) {
+        string resourceType = FindErrorMessageResourceType(ValidationErrorMessages.ExpressionMessage);
+        if (string.IsNullOrEmpty(resourceType)) {
+          #>, ErrorMessage = @"<#= ValidationErrorMessages.ExpressionMessage #>"<#+
+        }
+        else {
+          #>, ErrorMessageResourceName = "ExpressionMessage", ErrorMessageResourceType = typeof(<#= resourceType #>)<#+
+        }
+      }
+        #>)]
+<#+
+    }
+    else {
+
+      switch(property.ValidateFormat) {
+        case ValidationFormat.Email:
+#>
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"^([0-9a-zA-Z]([-.\w]*[0-9a-zA-Z])*@([0-9a-zA-Z][-\w]*[0-9a-zA-Z]\.)+[a-zA-Z]{2,9})$"<#+
+      if (!string.IsNullOrEmpty(ValidationErrorMessages.EmailMessage)) {
+        string resourceType = FindErrorMessageResourceType(ValidationErrorMessages.EmailMessage);
+        if (string.IsNullOrEmpty(resourceType)) {
+          #>, ErrorMessage = @"<#= ValidationErrorMessages.EmailMessage #>"<#+
+        }
+        else {
+          #>, ErrorMessageResourceName = "EmailMessage", ErrorMessageResourceType = typeof(<#= resourceType #>)<#+
+        }
+      }
+      else {
+          #>, ErrorMessage = @"<#= property.Name #> is not a well-formed email address."<#+
+      }
+        #>)]
+<#+
+          break;
+        case ValidationFormat.IPAddress:
+#>
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"^(25[0-5]|2[0-4][0-9]|[0-1]{1}[0-9]{2}|[1-9]{1}[0-9]{1}|[1-9])\.(25[0-5]|2[0-4][0-9]|[0-1]{1}[0-9]{2}|[1-9]{1}[0-9]{1}|[1-9]|0)\.(25[0-5]|2[0-4][0-9]|[0-1]{1}[0-9]{2}|[1-9]{1}[0-9]{1}|[1-9]|0)\.(25[0-5]|2[0-4][0-9]|[0-1]{1}[0-9]{2}|[1-9]{1}[0-9]{1}|[0-9])$"<#+
+      if (!string.IsNullOrEmpty(ValidationErrorMessages.IPAddressMessage)) {
+        string resourceType = FindErrorMessageResourceType(ValidationErrorMessages.IPAddressMessage);
+        if (string.IsNullOrEmpty(resourceType)) {
+          #>, ErrorMessage = @"<#= ValidationErrorMessages.IPAddressMessage #>"<#+
+        }
+        else {
+          #>, ErrorMessageResourceName = "EmailMessage", ErrorMessageResourceType = typeof(<#= resourceType #>)<#+
+        }
+      }
+      else {
+          #>, ErrorMessage = @"<#= property.Name #> must be a valid IP address."<#+
+      }
+        #>)]
+<#+
+        break;
+        case ValidationFormat.Numeric:
+#>
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"<#= string.Format(@"^[1-9]\d*({0}\d+)?$", System.Globalization.CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator) #>"<#+
+      if (!string.IsNullOrEmpty(ValidationErrorMessages.NumericMessage)) {
+        string resourceType = FindErrorMessageResourceType(ValidationErrorMessages.NumericMessage);
+        if (string.IsNullOrEmpty(resourceType)) {
+          #>, ErrorMessage = @"<#= ValidationErrorMessages.NumericMessage #>"<#+
+        }
+        else {
+          #>, ErrorMessageResourceName = "EmailMessage", ErrorMessageResourceType = typeof(<#= resourceType #>)<#+
+        }
+      }
+      else {
+          #>, ErrorMessage = @"<#= property.Name #> must be a numeric value."<#+
+      }
+        #>)]
+<#+
+        break;
+      }
+    }
+  }
+#>
+<#+
+  //////////////////////////////////////////////////////////////////////////////////
+  //
+  // Method GenerateNHibernateValidatorPropertyAttributes(Property property)
+  // Generate NHibernate Validator attributes for the class property.
+  //
+  //////////////////////////////////////////////////////////////////////////////////
+  protected void GenerateNHibernateValidatorPropertyAttributes(Property property) {
+    
+    output.AddReference("NHibernate.Validator");
+    string propType = codeProvider.GetNullableType(false, property.Type);
+
+    if (!string.IsNullOrEmpty(property.ValidateMinValue)) {
+
+      if (propType == "int" || propType == "long" || propType == "short" ||
+         propType == "uint" || propType == "ulong" || propType == "ushort") {
+#>
+        [NHibernate.Validator.Constraints.Min(<#= property.ValidateMinValue #><#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.RangeMessage)) {
+          #>, Message = @"<#= ValidationErrorMessages.RangeMessage #>"<#+
+        }
+        #>)]
+<#+
+      }
+      else {
+        decimal res1;
+        if (decimal.TryParse(property.ValidateMinValue, out res1)) {
+#>
+        [NHibernate.Validator.Constraints.DecimalMin(<#= res1.ToString() #>d<#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.RangeMessage)) {
+          #>, Message = @"<#= ValidationErrorMessages.RangeMessage #>"<#+
+        }
+        #>)]
+<#+
+        }
+      }
+    }
+
+    if (!string.IsNullOrEmpty(property.ValidateMaxValue)) {
+     if (propType == "int" || propType == "long" || propType == "short" ||
+         propType == "uint" || propType == "ulong" || propType == "ushort") {
+#>
+        [NHibernate.Validator.Constraints.Max(<#= property.ValidateMaxValue #><#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.RangeMessage)) {
+          #>, Message = @"<#= ValidationErrorMessages.RangeMessage #>"<#+
+        }
+        #>)]
+<#+
+      }
+        else {
+        decimal res1;
+        if (decimal.TryParse(property.ValidateMaxValue, out res1)) {
+#>
+        [NHibernate.Validator.Constraints.DecimalMax(<#= res1.ToString() #>d<#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.RangeMessage)) {
+          #>, Message = @"<#= ValidationErrorMessages.RangeMessage #>"<#+
+        }
+        #>)]
+<#+
+        }
+      }
+    }
+
+ 
+    if (property.ValidateMinLength != null || property.ValidateMaxLength != null) {
+#>
+        [NHibernate.Validator.Constraints.Length(<#+
+      if (property.ValidateMinLength != null) {
+          #>Min = <#= property.ValidateMinLength.ToString() #><#+
+        if (property.ValidateMaxLength != null) {
+          #>, <#+
+        }
+      }
+        #><#+
+      if (property.ValidateMaxLength != null) {
+          #>Max = <#= property.ValidateMaxLength.ToString() #><#+
+      }
+        #><#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.LengthMessage)) {
+          #>, Message = @"<#= ValidationErrorMessages.LengthMessage #>"<#+
+        }
+        #>)]
+<#+
+    }
+
+    if (property.ValidateRequired) { 
+#>
+        [NHibernate.Validator.Constraints.NotNull(<#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.RequiredMessage)) {
+          #>Message = @"<#= ValidationErrorMessages.RequiredMessage #>"<#+
+        }
+        #>)]
+<#+
+    }
+
+    if (!string.IsNullOrEmpty(property.ValidateExpression)) { 
+#>
+        [NHibernate.Validator.Constraints.Pattern(Regex = @"<#= property.ValidateExpression #>", Flags = System.Text.RegularExpressions.RegexOptions.None<#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.ExpressionMessage)) {
+          #>, Message = @"<#= ValidationErrorMessages.ExpressionMessage #>"<#+
+        }
+        #>)]
+<#+
+    }
+
+    switch(property.ValidateFormat) {
+      case ValidationFormat.Email:
+#>
+        [NHibernate.Validator.Constraints.Email(<#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.EmailMessage)) {
+          #>Message = @"<#= ValidationErrorMessages.EmailMessage #>"<#+
+        }
+        #>)]
+<#+
+        break;
+      case ValidationFormat.IPAddress:
+#>
+        [NHibernate.Validator.Constraints.IPAddress(<#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.IPAddressMessage)) {
+          #>Message = @"<#= ValidationErrorMessages.IPAddressMessage #>"<#+
+        }
+        #>)]
+<#+
+      break;
+      case ValidationFormat.Numeric:
+#>
+        [NHibernate.Validator.Constraints.IsNumeric(<#+
+        if (!string.IsNullOrEmpty(ValidationErrorMessages.NumericMessage)) {
+          #>Message = @"<#= ValidationErrorMessages.NumericMessage #>"<#+
+        }
+        #>)]
+<#+
+      break;
+    }
+  }
+#>
+<#+
+  //////////////////////////////////////////////////////////////////////////////////
+  //
+  // Method FindErrorMessageResourceType(string message)
+  // Looks for the error message resource type in the error message string.
+  // If the error message resource type is not specified, returns null.
+  //
+  //////////////////////////////////////////////////////////////////////////////////
+  private string FindErrorMessageResourceType(string message) {
+    
+    if (message.StartsWith("ResourceType=", StringComparison.InvariantCultureIgnoreCase))
+      return message.Substring("ResourceType=".Length).Trim();
+
+    if (message.StartsWith("Resource Type=", StringComparison.InvariantCultureIgnoreCase))
+      return message.Substring("Resource Type=".Length).Trim();
+
+    if (message.StartsWith("ResourceType =", StringComparison.InvariantCultureIgnoreCase))
+      return message.Substring("ResourceType =".Length).Trim();
+
+    if (message.StartsWith("ResourceType =", StringComparison.InvariantCultureIgnoreCase))
+      return message.Substring("Resource Type =".Length).Trim();
+
+    return null;
+  }
+#>
